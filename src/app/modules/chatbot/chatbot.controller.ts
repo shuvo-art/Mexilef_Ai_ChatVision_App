@@ -20,16 +20,19 @@ interface ResponseData {
 
 async function processUserInput({ text_input, pdf_path, image_path }: UserInputData): Promise<ResponseData> {
   const pythonScriptPath = path.join(__dirname, '../../../../maxim/main.py');
-  let command = `python -u "${pythonScriptPath}"`;
+  // Use 'python3' in production (Docker) and 'python' in development (Windows)
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  let command = `${pythonCmd} -u "${pythonScriptPath}"`;
   if (pdf_path) command += ` --upload "${pdf_path}"`;
   if (image_path) command += ` --image "${image_path}"`;
   if (text_input) command += ` "${text_input}"`;
   console.log('Executing Python command:', command);
 
-  const { stdout, stderr } = await execPromise(command, {
-    shell: 'cmd.exe',
-    cwd: path.dirname(pythonScriptPath),
-  });
+  const execOptions = process.platform === 'win32' 
+    ? { shell: 'cmd.exe', cwd: path.dirname(pythonScriptPath) }
+    : { cwd: path.dirname(pythonScriptPath) };
+
+  const { stdout, stderr } = await execPromise(command, execOptions);
   console.log('Python script stdout:', stdout);
   console.log('Python script stderr:', stderr);
 

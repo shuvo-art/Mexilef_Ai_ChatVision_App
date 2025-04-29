@@ -3,7 +3,6 @@ import authRoutes from './modules/auth/auth.routes';
 import subscriptionRoutes from './modules/subscription/subscription.routes';
 import packageRoutes from './modules/subscription/package.routes';
 import userRoutes from './modules/user/user.routes';
-import voiceRecordingRoutes from './modules/voiceRecording/voiceRecording.routes';
 import messageRoutes from './modules/messages/messages.routes';
 import chatRoutes from './modules/chat/chats.routes';
 import policyRoutes from './modules/policy/policy.routes';
@@ -15,12 +14,16 @@ import { authenticate } from './modules/auth/auth.middleware';
 
 const router = express.Router();
 
+// Health check endpoint (public)
+router.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
 // Public routes
 router.use('/auth', authRoutes);
 
 // Authenticated routes
 router.use('/user', authenticate, userRoutes);
-router.use('/voice', authenticate, voiceRecordingRoutes)
 
 router.use('/messages', authenticate, messageRoutes);
 router.use('/chats', authenticate, chatRoutes);
@@ -37,4 +40,5 @@ router.use('/dashboard', authenticate, dashboardRoutes);
 // Chatbot routes for authenticated users
 router.use('/chatbot', authenticate, chatbotRoutes);
 router.use('/problem', problemRoutes);
+
 export default router;

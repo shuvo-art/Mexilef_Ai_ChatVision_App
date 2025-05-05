@@ -1,8 +1,15 @@
-# Use Node.js 18 as the base image for building
-FROM node:18-alpine AS builder
+# Use Node.js 18-slim as the base image for building
+FROM node:18-slim AS builder
 
 # Install build dependencies
-RUN apk add --no-cache python3 py3-pip build-base libsndfile-dev
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    build-essential \
+    libsndfile1-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -11,11 +18,14 @@ WORKDIR /app
 RUN python3 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
+# Upgrade pip in the virtual environment
+RUN pip install --upgrade pip
+
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install Node.js dependencies
-RUN npm ci --omit=dev
+# Install ALL dependencies (including dev dependencies) for building
+RUN npm ci
 
 # Copy Python requirements
 COPY maxim/requirements.txt ./maxim/
@@ -30,10 +40,13 @@ COPY . .
 RUN npm run build
 
 # Create production image
-FROM node:18-alpine
+FROM node:18-slim
 
 # Install Python runtime dependencies
-RUN apk add --no-cache python3 libsndfile
+RUN apt-get update && apt-get install -y \
+    python3 \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -45,7 +58,7 @@ COPY --from=builder /app/venv ./venv
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
-COPY --from=builder /app/uploads ./uploads
+# COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/.env ./
 COPY --from=builder /app/src/app/config ./src/app/config
 
@@ -56,7 +69,7 @@ ENV PATH="/app/venv/bin:$PATH"
 RUN npm ci --omit=dev --no-audit --no-fund
 
 # Create non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 USER appuser
 
 # Expose the port

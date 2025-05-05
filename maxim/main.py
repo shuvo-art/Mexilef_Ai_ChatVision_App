@@ -31,7 +31,10 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY not found in environment variables.")
 
-VISION_API_KEY = "AIzaSyB9koJ8i8ocflxgLkFX7PK-3phyiVlLjlw"  # Replace with your key
+VISION_API_KEY = os.getenv("VISION_API_KEY")
+if not VISION_API_KEY:
+    raise ValueError("VISION_API_KEY not found in environment variables.")
+
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 tokenizer = tiktoken.get_encoding("cl100k_base")
 conversation_history = []

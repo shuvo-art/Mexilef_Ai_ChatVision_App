@@ -82,7 +82,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
-          password: ${{ secrets.VPS_PASSWORD }} # Or use key: ${{ secrets.VPS_SSH_KEY }} if using SSH key
+          key: ${{ secrets.VPS_SSH_KEY }} # Using SSH key instead of password
           port: 22
           script: |
             # Pull the latest image

@@ -45,9 +45,10 @@ jobs:
           python-version: '3.9'
           cache: 'pip'
 
-      - name: Install Python dependencies
+      - name: Upgrade pip and install Python dependencies
         run: |
           cd maxim
+          python3 -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run Python tests

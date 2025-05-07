@@ -44,7 +44,7 @@ marshmallow==3.26.1
 mpmath==1.3.0
 multidict==6.1.0
 mypy-extensions==1.0.0
-networkx==3.4.2
+networkx==3.2.1  # Updated from 3.4.2
 nltk==3.9.1
 numpy==1.26.4
 openai==1.66.3

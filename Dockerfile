@@ -14,9 +14,6 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy .env file first
-COPY .env ./
-
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
@@ -57,7 +54,7 @@ COPY --from=builder /app/venv ./venv
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
-COPY --from=builder /app/.env ./
+# Remove this line: COPY --from=builder /app/.env ./
 COPY --from=builder /app/src/app/config ./src/app/config
 
 # Set the PATH to use the virtual environment's Python

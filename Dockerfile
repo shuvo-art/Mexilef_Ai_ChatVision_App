@@ -58,7 +58,6 @@ COPY --from=builder /app/venv ./venv
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
-# COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/.env ./
 COPY --from=builder /app/src/app/config ./src/app/config
 
@@ -76,4 +75,4 @@ USER appuser
 EXPOSE 5006
 
 # Start the application
-CMD ["node", "dist/index.js", "192.168.10.198:5006"]
+CMD ["node", "dist/index.js"]

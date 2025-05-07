@@ -14,12 +14,8 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Create a virtual environment for Python
-RUN python3 -m venv /app/venv
-ENV PATH="/app/venv/bin:$PATH"
-
-# Upgrade pip in the virtual environment
-RUN pip install --upgrade pip
+# Copy .env file first
+COPY .env ./
 
 # Copy package.json and package-lock.json
 COPY package*.json ./
@@ -31,6 +27,9 @@ RUN npm ci
 COPY maxim/requirements.txt ./maxim/
 
 # Install Python dependencies in the virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r maxim/requirements.txt
 
 # Copy the rest of the application

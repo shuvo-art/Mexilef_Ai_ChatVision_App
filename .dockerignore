@@ -23,3 +23,6 @@ uploads/
 # Ignore Git-related files
 .git/
 .gitignore
+
+# Ignore Firebase Admin SDK key
+src/app/config/somos-ai-voice-cloning-firebase-adminsdk-fbsvc-0793bb60e0.json

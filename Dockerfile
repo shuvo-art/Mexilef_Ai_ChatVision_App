@@ -54,8 +54,7 @@ COPY --from=builder /app/venv ./venv
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
-# Remove this line: COPY --from=builder /app/.env ./
-COPY --from=builder /app/src/app/config ./src/app/config
+# Removed COPY --from=builder /app/src/app/config ./src/app/config since Firebase uses env variable
 
 # Set the PATH to use the virtual environment's Python
 ENV PATH="/app/venv/bin:$PATH"

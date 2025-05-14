@@ -1,4 +1,4 @@
-# Use Node.js 18-slim as the base image for building
+# Stage 1: Build the application
 FROM node:18-slim AS builder
 
 # Install build dependencies
@@ -11,34 +11,32 @@ RUN apt-get update && apt-get install -y \
     libsndfile1-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install NLTK and download punkt_tab
+RUN pip install nltk --break-system-packages && python3 -c "import nltk; nltk.download('punkt_tab', download_dir='/root/nltk_data')"
+
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy Node.js dependency files
 COPY package*.json ./
-
-# Install ALL dependencies (including dev dependencies) for building
 RUN npm ci
 
-# Copy Python requirements
+# Copy Python requirements and set up virtual environment
 COPY maxim/requirements.txt ./maxim/
-
-# Install Python dependencies in the virtual environment
 RUN python3 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r maxim/requirements.txt
+RUN pip install --upgrade pip --break-system-packages && pip install --no-cache-dir -r maxim/requirements.txt --break-system-packages
 
-# Copy the rest of the application
+# Copy the entire application
 COPY . .
 
 # Build TypeScript code
 RUN npm run build
 
-# Create production image
+# Stage 2: Production image
 FROM node:18-slim
 
-# Install Python runtime dependencies
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     libsndfile1 \
@@ -47,27 +45,28 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy the virtual environment from the builder stage
+# Copy virtual environment
 COPY --from=builder /app/venv ./venv
 
-# Copy built artifacts from builder stage
+# Copy built artifacts and required directories
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
-# Removed COPY --from=builder /app/src/app/config ./src/app/config since Firebase uses env variable
+COPY --from=builder /app/maxim/models ./maxim/models  
 
-# Set the PATH to use the virtual environment's Python
+# Set environment variables
 ENV PATH="/app/venv/bin:$PATH"
+ENV NLTK_DATA=/root/nltk_data
 
-# Install only production Node.js dependencies
+# Install production Node.js dependencies
 RUN npm ci --omit=dev --no-audit --no-fund
 
-# Create non-root user for security
+# Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 USER appuser
 
-# Expose the port
+# Expose port
 EXPOSE 5006
 
-# Start the application
+# Start application
 CMD ["node", "dist/index.js"]

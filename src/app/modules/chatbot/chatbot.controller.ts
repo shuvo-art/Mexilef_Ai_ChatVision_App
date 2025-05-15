@@ -19,7 +19,7 @@ interface ResponseData {
 }
 
 async function processUserInput({ text_input, pdf_path, image_path }: UserInputData): Promise<ResponseData> {
-  const pythonScriptPath = '/app/maxim/main.py'; // Absolute path inside container
+  const pythonScriptPath = '/app/maxim/maxim/main.py'; // Absolute path inside container
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   let command = `${pythonCmd} -u "${pythonScriptPath}"`;
   if (pdf_path) command += ` --upload "${pdf_path}"`;

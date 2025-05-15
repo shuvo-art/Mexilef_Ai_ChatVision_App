@@ -58,6 +58,7 @@ COPY --from=builder /app/venv ./venv
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/maxim ./maxim
+RUN chown -R 999:999 /app/maxim && chmod -R 775 /app/maxim
 COPY --from=builder /app/maxim/models ./maxim/models
 COPY --from=builder /app/nltk_data ./nltk_data
 

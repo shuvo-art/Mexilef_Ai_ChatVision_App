@@ -235,7 +235,7 @@ def generate_response(query, retrieved_chunks):
 
 def process_user_input(text_input, image_input, chunks, index):
     combined_query = ""
-    if image_input:
+    if image_input and os.path.exists(image_input):
         image_info = extract_image_details(image_input)
         if image_info is None:
             return "Error processing the image. Please try again with a different image."

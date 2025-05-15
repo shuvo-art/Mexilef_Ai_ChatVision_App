@@ -19,8 +19,7 @@ interface ResponseData {
 }
 
 async function processUserInput({ text_input, pdf_path, image_path }: UserInputData): Promise<ResponseData> {
-  const pythonScriptPath = path.join(__dirname, '../../../../maxim/main.py');
-  // Use 'python3' in production (Docker) and 'python' in development (Windows)
+  const pythonScriptPath = '/app/maxim/main.py'; // Absolute path inside container
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   let command = `${pythonCmd} -u "${pythonScriptPath}"`;
   if (pdf_path) command += ` --upload "${pdf_path}"`;
@@ -28,24 +27,35 @@ async function processUserInput({ text_input, pdf_path, image_path }: UserInputD
   if (text_input) command += ` "${text_input}"`;
   console.log('Executing Python command:', command);
 
-  const execOptions = process.platform === 'win32' 
-    ? { shell: 'cmd.exe', cwd: path.dirname(pythonScriptPath) }
-    : { cwd: path.dirname(pythonScriptPath) };
+  const execOptions = {
+    cwd: path.dirname(pythonScriptPath), // Set working directory to maxim directory
+    env: {
+      ...process.env, // Pass all existing environment variables
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      VISION_API_KEY: process.env.VISION_API_KEY,
+    },
+  };
 
-  const { stdout, stderr } = await execPromise(command, execOptions);
-  console.log('Python script stdout:', stdout);
-  console.log('Python script stderr:', stderr);
+  try {
+    const { stdout, stderr } = await execPromise(command, execOptions);
+    console.log('Python script stdout:', stdout);
+    console.log('Python script stderr:', stderr);
 
-  const responseMatch = stdout.match(/AI Response: ([\s\S]+)/);
-  const response = responseMatch ? responseMatch[1].trim() : 'No response generated';
-  return { response };
+    const responseMatch = stdout.match(/AI Response: ([\s\S]+)/);
+    const response = responseMatch ? responseMatch[1].trim() : stderr || 'No response generated';
+    if (stderr && !responseMatch) console.warn('Falling back to stderr due to parsing failure:', stderr);
+    return { response };
+  } catch (error: any) {
+    console.error('Error executing Python script:', error.message, error.stderr);
+    throw new Error(`Python script execution failed: ${error.stderr || error.message}`);
+  }
 }
 
 // Admin-only PDF upload handler
 export const handlePdfUpload: RequestHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const file = req.file; // Single file from multer
+    const file = req.file;
 
     console.log('Received userId:', userId);
     console.log('Received file:', file);
@@ -60,17 +70,17 @@ export const handlePdfUpload: RequestHandler = async (req, res) => {
       return;
     }
 
-    const pdfPath = path.resolve(file.path); // Absolute path
+    const pdfPath = path.resolve(file.path);
     console.log('PDF file path:', pdfPath);
 
     const inputData: UserInputData = { pdf_path: pdfPath };
-    const response = await processUserInput(inputData);
+    const { response } = await processUserInput(inputData);
 
     // Clean up uploaded file
     if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
     console.log('Temporary PDF file cleaned up');
 
-    res.status(201).json({ success: true, message: response.response });
+    res.status(201).json({ success: true, message: response });
   } catch (error: any) {
     console.error('Error in handlePdfUpload:', error.message);
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -82,8 +92,8 @@ export const handlePdfUpload: RequestHandler = async (req, res) => {
 export const handleChatMessage: RequestHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const { userMessage, chatId } = req.body; // From form-data or JSON
-    const imageFile = req.file; // Single image file from multer
+    const { userMessage, chatId } = req.body;
+    const imageFile = req.file;
 
     console.log('Received userId:', userId);
     console.log('Received userMessage:', userMessage);
@@ -106,8 +116,8 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
     // Handle image upload to Cloudinary if an image is provided
     if (imageFile) {
       imagePath = path.resolve(imageFile.path);
-      const uploadResult = await uploadImage(imagePath); // Upload to Cloudinary
-      imageUrl = uploadResult.secure_url; // Get the secure URL
+      const uploadResult = await uploadImage(imagePath);
+      imageUrl = uploadResult.secure_url;
       console.log('Image uploaded to Cloudinary:', imageUrl);
     }
 
@@ -121,8 +131,8 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
     console.log('Generated userMessageId:', userMessageId);
 
     const inputData: UserInputData = { text_input: userMessage, image_path: imagePath };
-    const botResponse = await processUserInput(inputData);
-    console.log('Bot response received:', botResponse.response);
+    const { response: botResponse } = await processUserInput(inputData);
+    console.log('Bot response received:', botResponse);
 
     const botMessageId = userMessageId + 1;
 
@@ -131,16 +141,16 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
       chatHistory.chat_contents.push({
         id: userMessageId,
         sent_by: 'User',
-        text_content: userMessage || '', // Use empty string if no text
+        text_content: userMessage || '',
         timestamp: new Date(),
-        image_url: imageUrl, // Include image URL if available
+        image_url: imageUrl,
       });
     }
 
     chatHistory.chat_contents.push({
       id: botMessageId,
       sent_by: 'Bot',
-      text_content: botResponse.response,
+      text_content: botResponse,
       timestamp: new Date(),
       is_liked: false,
     });
@@ -148,7 +158,7 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
     await chatHistory.save();
     console.log('Chat history saved:', chatHistory._id);
 
-    // Clean up temporary image file
+    // Clean up temporary image file after processing
     if (imagePath && fs.existsSync(imagePath)) {
       fs.unlinkSync(imagePath);
       console.log('Temporary image file cleaned up');

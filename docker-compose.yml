@@ -22,7 +22,8 @@ services:
       - BASE_URL=${BASE_URL:-http://localhost:5006}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - FIREBASE_SERVICE_ACCOUNT=${FIREBASE_SERVICE_ACCOUNT}  # Updated to use environment variable
+      - VISION_API_KEY=${VISION_API_KEY}
+      - FIREBASE_SERVICE_ACCOUNT=${FIREBASE_SERVICE_ACCOUNT}
     volumes:
       - ./uploads:/app/uploads
       - ./maxim:/app/maxim

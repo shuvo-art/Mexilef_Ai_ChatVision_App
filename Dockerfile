@@ -9,12 +9,8 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     build-essential \
     libsndfile1-dev \
+    nano \
     && rm -rf /var/lib/apt/lists/*
-
-# Install NLTK and download punkt_tab to /app/nltk_data
-RUN pip install nltk --break-system-packages && \
-    mkdir -p /app/nltk_data && \
-    python3 -c "import nltk; nltk.download('punkt_tab', download_dir='/app/nltk_data')"
 
 # Set working directory
 WORKDIR /app
@@ -23,12 +19,15 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy Python requirements and set up virtual environment
+# Copy Python requirements
 COPY maxim/requirements.txt ./maxim/
-RUN python3 -m venv /app/venv
-ENV PATH="/app/venv/bin:$PATH"
-RUN pip install --upgrade pip --break-system-packages && \
-    pip install --no-cache-dir -r maxim/requirements.txt --break-system-packages
+
+# Install system dependencies and NLTK
+RUN apt-get update && apt-get install -y python3-pip python3-venv nano && \
+    python3 -m venv /app/venv && \
+    . /app/venv/bin/activate && \
+    pip install --no-cache-dir -r maxim/requirements.txt --break-system-packages && \
+    python3 -c "import nltk; nltk.download('punkt_tab', download_dir='/app/nltk_data')"
 
 # Copy the entire application
 COPY . .

@@ -19,11 +19,12 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
+nltk.data.path.append('/app/nltk_data')  # Add this line before any nltk.data.find calls
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
     print("Downloading 'punkt_tab' resource for NLTK...")
-    nltk.download('punkt_tab', quiet=True)
+    nltk.download('punkt_tab', download_dir='/app/nltk_data', quiet=True)
     print("'punkt_tab' downloaded successfully.")
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))

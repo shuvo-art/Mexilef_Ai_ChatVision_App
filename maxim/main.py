@@ -14,18 +14,20 @@ import shutil
 import requests
 import base64
 import sys
+import tempfile
+import glob
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-nltk.data.path.append('/app/nltk_data')  # Add this line before any nltk.data.find calls
+nltk.data.path.append('/app/nltk_data')
 try:
     nltk.data.find('tokenizers/punkt_tab')
+    print("'punkt_tab' resource found.")
 except LookupError:
-    print("Downloading 'punkt_tab' resource for NLTK...")
-    nltk.download('punkt_tab', download_dir='/app/nltk_data', quiet=True)
-    print("'punkt_tab' downloaded successfully.")
+    print("Error: 'punkt_tab' resource not found in /app/nltk_data. Please ensure it is pre-downloaded in the Docker image.")
+    sys.exit(1)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
@@ -124,46 +126,112 @@ def preprocess_and_index(raw_text, output_dir="models/embeddings"):
 
 def load_knowledge_base(output_dir="models/embeddings"):
     try:
-        with open(os.path.join(output_dir, "chunks.pkl"), "rb") as f:
+        # Check if files exist
+        chunks_path = os.path.join(output_dir, "chunks.pkl")
+        embeddings_path = os.path.join(output_dir, "embeddings.npy")
+        index_path = os.path.join(output_dir, "faiss_index.bin")
+
+        if not all(os.path.exists(p) for p in [chunks_path, embeddings_path, index_path]):
+            print("One or more knowledge base files are missing. Reinitializing...")
+            return None, None, None
+
+        # Load chunks
+        with open(chunks_path, "rb") as f:
             chunks = pickle.load(f)
-        embeddings = np.load(os.path.join(output_dir, "embeddings.npy"))
-        index = faiss.read_index(os.path.join(output_dir, "faiss_index.bin"))
+
+        # Load embeddings
+        embeddings = np.load(embeddings_path)
+
+        # Load FAISS index
+        index = faiss.read_index(index_path)
+
+        # Consistency checks
+        if len(chunks) != embeddings.shape[0]:
+            print(f"Inconsistent data: Number of chunks ({len(chunks)}) does not match embeddings ({embeddings.shape[0]}). Reinitializing...")
+            return None, None, None
+
+        if embeddings.shape[0] != index.ntotal:
+            print(f"Inconsistent data: Number of embeddings ({embeddings.shape[0]}) does not match FAISS index size ({index.ntotal}). Reinitializing...")
+            return None, None, None
+
+        print("Knowledge base loaded successfully.")
         return chunks, embeddings, index
     except Exception as e:
         print(f"Error loading knowledge base: {e}")
         return None, None, None
+
+def clear_knowledge_base(output_dir="models/embeddings"):
+    """Remove all knowledge base files to start fresh."""
+    try:
+        for file_path in glob.glob(os.path.join(output_dir, "*")):
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                print(f"Removed {file_path}")
+    except Exception as e:
+        print(f"Error clearing knowledge base: {e}")
 
 def upload_pdf(new_pdf_path, pdf_storage_dir=PDF_STORAGE_DIR, output_dir="models/embeddings"):
     print(f"Processing PDF upload: {new_pdf_path}")
     if not os.path.exists(new_pdf_path):
         print(f"File {new_pdf_path} does not exist")
         return "Error: PDF file does not exist."
+
+    # Copy PDF to storage
     destination = os.path.join(pdf_storage_dir, os.path.basename(new_pdf_path))
     shutil.copy(new_pdf_path, destination)
+
+    # Extract and process text
     raw_text = extract_text_from_pdf(new_pdf_path)
     if raw_text is None:
         return "Error processing PDF."
+
     new_chunks = chunk_text(clean_text(raw_text))
     if not new_chunks:
         return "No content extracted from PDF."
+
     new_embeddings = get_embeddings(new_chunks)
     if new_embeddings.size == 0:
         return "Error generating embeddings for PDF."
+
+    # Load existing knowledge base
     existing_chunks, existing_embeddings, index = load_knowledge_base(output_dir)
+
+    # If existing data is corrupted or missing, start fresh
     if existing_chunks is None or index is None:
-        existing_chunks = new_chunks
-        existing_embeddings = new_embeddings
-        index = build_faiss_index(new_embeddings)
-    else:
-        existing_chunks.extend(new_chunks)
+        print("Clearing corrupted knowledge base files...")
+        clear_knowledge_base(output_dir)
+        existing_chunks = []
+        existing_embeddings = None
+
+    # Combine new and existing data
+    combined_chunks = existing_chunks + new_chunks
+    if existing_embeddings is not None:
         combined_embeddings = np.concatenate((existing_embeddings, new_embeddings), axis=0)
-        index = build_faiss_index(combined_embeddings)
-        existing_embeddings = combined_embeddings
+    else:
+        combined_embeddings = new_embeddings
+
+    # Build new FAISS index
+    index = build_faiss_index(combined_embeddings)
+
+    # Write files atomically using temporary directory
     os.makedirs(output_dir, exist_ok=True)
-    with open(os.path.join(output_dir, "chunks.pkl"), "wb") as f:
-        pickle.dump(existing_chunks, f)
-    np.save(os.path.join(output_dir, "embeddings.npy"), existing_embeddings)
-    faiss.write_index(index, os.path.join(output_dir, "faiss_index.bin"))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_chunks_path = os.path.join(temp_dir, "chunks.pkl")
+        temp_embeddings_path = os.path.join(temp_dir, "embeddings.npy")
+        temp_index_path = os.path.join(temp_dir, "faiss_index.bin")
+
+        # Write to temporary files
+        with open(temp_chunks_path, "wb") as f:
+            pickle.dump(combined_chunks, f)
+        np.save(temp_embeddings_path, combined_embeddings)
+        faiss.write_index(index, temp_index_path)
+
+        # Move files to final destination atomically
+        shutil.move(temp_chunks_path, os.path.join(output_dir, "chunks.pkl"))
+        shutil.move(temp_embeddings_path, os.path.join(output_dir, "embeddings.npy"))
+        shutil.move(temp_index_path, os.path.join(output_dir, "faiss_index.bin"))
+
+    print("Knowledge base updated successfully.")
     return "PDF uploaded and indexed successfully."
 
 def extract_image_details(image_path):

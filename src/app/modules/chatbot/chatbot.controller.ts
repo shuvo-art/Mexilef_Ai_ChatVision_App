@@ -93,20 +93,23 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { userMessage, chatId } = req.body;
-    const imageFile = req.file;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const imageFile = files?.['image'] ? files['image'][0] : undefined;
+    const pdfFile = (req.files as { [fieldname: string]: Express.Multer.File[] } | undefined)?.['pdf']?.[0];
 
     console.log('Received userId:', userId);
     console.log('Received userMessage:', userMessage);
     console.log('Received chatId:', chatId);
     console.log('Received image file:', imageFile);
+    console.log('Received pdf file:', pdfFile);
 
     if (!userId) {
       res.status(401).json({ success: false, message: 'Unauthorized' });
       return;
     }
 
-    if (!userMessage && !imageFile) {
-      res.status(400).json({ success: false, message: 'Text or image input is required.' });
+    if (!userMessage && !imageFile && !pdfFile) {
+      res.status(400).json({ success: false, message: 'Text, PDF, or image input is required.' });
       return;
     }
 
@@ -129,6 +132,17 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
 
     const userMessageId = getNextMessageId(chatHistory.chat_contents);
     console.log('Generated userMessageId:', userMessageId);
+
+    // Handle PDF upload if provided
+    if (pdfFile) {
+      const pdfPath = path.resolve(pdfFile.path);
+      console.log('Processing PDF:', pdfPath);
+      const inputData: UserInputData = { pdf_path: pdfPath };
+      const { response: pdfResponse } = await processUserInput(inputData);
+      console.log('PDF processing response:', pdfResponse);
+      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+      console.log('Temporary PDF file cleaned up');
+    }
 
     const inputData: UserInputData = { text_input: userMessage, image_path: imagePath };
     const { response: botResponse } = await processUserInput(inputData);
@@ -167,7 +181,11 @@ export const handleChatMessage: RequestHandler = async (req, res) => {
     res.status(201).json({ success: true, chatHistory });
   } catch (error: any) {
     console.error('Error in handleChatMessage:', error.message);
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    if (req.files) {
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      if (files?.['pdf'] && fs.existsSync(files['pdf'][0].path)) fs.unlinkSync(files['pdf'][0].path);
+      if (files?.['image'] && fs.existsSync(files['image'][0].path)) fs.unlinkSync(files['image'][0].path);
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 };

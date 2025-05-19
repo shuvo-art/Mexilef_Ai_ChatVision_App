@@ -32,6 +32,11 @@ RUN apt-get update && apt-get install -y python3-pip python3-venv nano && \
 # Copy the entire application
 COPY . .
 
+# Create and permission the embeddings directory
+RUN mkdir -p /app/maxim/maxim/models/embeddings && \
+    chown -R 999:999 /app/maxim/maxim/models/embeddings && \
+    chmod -R 775 /app/maxim/maxim/models/embeddings
+
 # Build TypeScript code
 RUN npm run build
 

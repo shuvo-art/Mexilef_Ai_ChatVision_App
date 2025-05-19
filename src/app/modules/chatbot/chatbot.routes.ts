@@ -17,8 +17,8 @@ const upload = multer({ dest: 'uploads/' });
 // Admin-only PDF upload endpoint
 router.post('/upload-pdf', authenticate, requireRole('admin'), upload.single('pdf'), handlePdfUpload);
 
-// User chat message endpoint (supports text and image)
-router.post('/message', authenticate, upload.single('image'), handleChatMessage);
+// User chat message endpoint (supports text, image, or both)
+router.post('/message', authenticate, upload.fields([{ name: 'image', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]), handleChatMessage);
 
 router.get('/all-chats', authenticate, getAllChats);
 router.get('/history/:chatId', authenticate, getChatHistory);

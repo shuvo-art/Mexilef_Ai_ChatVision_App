@@ -16,6 +16,9 @@ import base64
 import sys
 import tempfile
 import glob
+import time
+from openai import OpenAI
+from openai import RateLimitError
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -93,12 +96,33 @@ def truncate_text(text, max_tokens):
         return tokenizer.decode(tokens[:max_tokens])
     return text
 
-def get_embeddings(texts, batch_size=10):
+def get_embeddings(texts, batch_size=5):  # Reduced batch_size to 5
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     embeddings = []
-    for batch_start in range(0, len(texts), batch_size):
-        batch = texts[batch_start:batch_start + batch_size]
-        response = client.embeddings.create(model="text-embedding-ada-002", input=batch)
-        embeddings.extend([item.embedding for item in response.data])
+    max_retries = 5
+    base_delay = 1.0  # Initial delay in seconds
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        for attempt in range(max_retries):
+            try:
+                response = client.embeddings.create(
+                    model="text-embedding-ada-002",
+                    input=batch
+                )
+                batch_embeddings = [np.array(item.embedding) for item in response.data]
+                embeddings.extend(batch_embeddings)
+                break  # Success, exit retry loop
+            except RateLimitError as e:
+                if attempt == max_retries - 1:  # Last attempt
+                    raise e
+                # Parse the retry-after time from the error message
+                retry_after = base_delay * (2 ** attempt)  # Exponential backoff
+                error_msg = str(e)
+                if "Please try again in" in error_msg:
+                    retry_time_str = error_msg.split("Please try again in ")[1].split("s")[0]
+                    retry_after = max(retry_after, float(retry_time_str))
+                print(f"Rate limit exceeded, retrying in {retry_after:.2f} seconds (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(retry_after)
     return np.array(embeddings, dtype=np.float32)
 
 def build_faiss_index(embeddings):

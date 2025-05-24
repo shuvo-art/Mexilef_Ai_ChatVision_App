@@ -72,7 +72,7 @@ def extract_text_from_pdf(pdf_path):
 def clean_text(text):
     return re.sub(r"\s+", " ", text.strip())
 
-def chunk_text(text, max_words=500, overlap_words=100):
+def chunk_text(text, max_words=100, overlap_words=25):  # Reduced to 100 and 25
     sentences = sent_tokenize(text)
     chunks = []
     current_chunk = []
@@ -96,13 +96,16 @@ def truncate_text(text, max_tokens):
         return tokenizer.decode(tokens[:max_tokens])
     return text
 
-def get_embeddings(texts, batch_size=5):  # Reduced batch_size to 5
+def get_embeddings(texts, batch_size=2):  # Reduced to 2
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     embeddings = []
-    max_retries = 5
-    base_delay = 1.0  # Initial delay in seconds
+    max_retries = 10  # Increased retries
+    base_delay = 1.0
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
+        batch_tokens = sum(len(tokenizer.encode(text)) for text in batch)
+        if batch_tokens > 8192:
+            raise ValueError(f"Batch token count ({batch_tokens}) exceeds 8192. Reduce batch_size or chunk size.")
         for attempt in range(max_retries):
             try:
                 response = client.embeddings.create(
@@ -111,12 +114,11 @@ def get_embeddings(texts, batch_size=5):  # Reduced batch_size to 5
                 )
                 batch_embeddings = [np.array(item.embedding) for item in response.data]
                 embeddings.extend(batch_embeddings)
-                break  # Success, exit retry loop
+                break
             except RateLimitError as e:
-                if attempt == max_retries - 1:  # Last attempt
+                if attempt == max_retries - 1:
                     raise e
-                # Parse the retry-after time from the error message
-                retry_after = base_delay * (2 ** attempt)  # Exponential backoff
+                retry_after = base_delay * (2 ** attempt)
                 error_msg = str(e)
                 if "Please try again in" in error_msg:
                     retry_time_str = error_msg.split("Please try again in ")[1].split("s")[0]
@@ -150,7 +152,6 @@ def preprocess_and_index(raw_text, output_dir="models/embeddings"):
 
 def load_knowledge_base(output_dir="models/embeddings"):
     try:
-        # Check if files exist
         chunks_path = os.path.join(output_dir, "chunks.pkl")
         embeddings_path = os.path.join(output_dir, "embeddings.npy")
         index_path = os.path.join(output_dir, "faiss_index.bin")
@@ -159,21 +160,14 @@ def load_knowledge_base(output_dir="models/embeddings"):
             print("One or more knowledge base files are missing. Reinitializing...")
             return None, None, None
 
-        # Load chunks
         with open(chunks_path, "rb") as f:
             chunks = pickle.load(f)
-
-        # Load embeddings
         embeddings = np.load(embeddings_path)
-
-        # Load FAISS index
         index = faiss.read_index(index_path)
 
-        # Consistency checks
         if len(chunks) != embeddings.shape[0]:
             print(f"Inconsistent data: Number of chunks ({len(chunks)}) does not match embeddings ({embeddings.shape[0]}). Reinitializing...")
             return None, None, None
-
         if embeddings.shape[0] != index.ntotal:
             print(f"Inconsistent data: Number of embeddings ({embeddings.shape[0]}) does not match FAISS index size ({index.ntotal}). Reinitializing...")
             return None, None, None
@@ -185,7 +179,6 @@ def load_knowledge_base(output_dir="models/embeddings"):
         return None, None, None
 
 def clear_knowledge_base(output_dir="models/embeddings"):
-    """Remove all knowledge base files to start fresh."""
     try:
         for file_path in glob.glob(os.path.join(output_dir, "*")):
             if os.path.isfile(file_path):
@@ -200,11 +193,9 @@ def upload_pdf(new_pdf_path, pdf_storage_dir=PDF_STORAGE_DIR, output_dir="models
         print(f"File {new_pdf_path} does not exist")
         return "Error: PDF file does not exist."
 
-    # Copy PDF to storage
     destination = os.path.join(pdf_storage_dir, os.path.basename(new_pdf_path))
     shutil.copy(new_pdf_path, destination)
 
-    # Extract and process text
     raw_text = extract_text_from_pdf(new_pdf_path)
     if raw_text is None:
         return "Error processing PDF."
@@ -217,40 +208,33 @@ def upload_pdf(new_pdf_path, pdf_storage_dir=PDF_STORAGE_DIR, output_dir="models
     if new_embeddings.size == 0:
         return "Error generating embeddings for PDF."
 
-    # Load existing knowledge base
     existing_chunks, existing_embeddings, index = load_knowledge_base(output_dir)
 
-    # If existing data is corrupted or missing, start fresh
     if existing_chunks is None or index is None:
         print("Clearing corrupted knowledge base files...")
         clear_knowledge_base(output_dir)
         existing_chunks = []
         existing_embeddings = None
 
-    # Combine new and existing data
     combined_chunks = existing_chunks + new_chunks
     if existing_embeddings is not None:
         combined_embeddings = np.concatenate((existing_embeddings, new_embeddings), axis=0)
     else:
         combined_embeddings = new_embeddings
 
-    # Build new FAISS index
     index = build_faiss_index(combined_embeddings)
 
-    # Write files atomically using temporary directory
     os.makedirs(output_dir, exist_ok=True)
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_chunks_path = os.path.join(temp_dir, "chunks.pkl")
         temp_embeddings_path = os.path.join(temp_dir, "embeddings.npy")
         temp_index_path = os.path.join(temp_dir, "faiss_index.bin")
 
-        # Write to temporary files
         with open(temp_chunks_path, "wb") as f:
             pickle.dump(combined_chunks, f)
         np.save(temp_embeddings_path, combined_embeddings)
         faiss.write_index(index, temp_index_path)
 
-        # Move files to final destination atomically
         shutil.move(temp_chunks_path, os.path.join(output_dir, "chunks.pkl"))
         shutil.move(temp_embeddings_path, os.path.join(output_dir, "embeddings.npy"))
         shutil.move(temp_index_path, os.path.join(output_dir, "faiss_index.bin"))
@@ -296,7 +280,7 @@ def query_faiss(query, chunks, index, k=5):
     query_embedding = get_embeddings([query])[0]
     query_embedding = query_embedding / np.linalg.norm(query_embedding)
     distances, indices = index.search(np.array([query_embedding]), k)
-    if distances[0][0] > 0.7:  # Threshold for relevance
+    if distances[0][0] > 0.7:
         return []
     return [chunks[idx] for idx in indices[0]]
 
